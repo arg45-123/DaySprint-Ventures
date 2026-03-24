@@ -1,6 +1,7 @@
+import 'dart:math';
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:intl/intl.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 class WorkerProfileScreen extends StatelessWidget {
   final String workerId;
@@ -8,32 +9,32 @@ class WorkerProfileScreen extends StatelessWidget {
   const WorkerProfileScreen({super.key, required this.workerId});
 
   Future<Map<String, dynamic>> _fetchWorkerDetails() async {
-    try {
-      final doc = await FirebaseFirestore.instance.collection('worker_data').doc(workerId).get();
-      return doc.data() ?? {};
-    } catch (e) {
-      return {'error': 'Failed to fetch worker details: $e'};
-    }
+    final doc = await FirebaseFirestore.instance
+        .collection('worker_data')
+        .doc(workerId)
+        .get();
+    return doc.data() ?? {};
   }
 
-  Future<void> _cancelHire(String workerId) async {
-    try {
-      final workerRef = FirebaseFirestore.instance.collection('worker_data').doc(workerId);
+  // 🔥 RANDOM WHATSAPP FUNCTION
+  Future<void> _openWhatsApp() async {
+    List<String> numbers = [
+      "919921485238", // +91 add karo
+      "919359046139"
+    ];
 
-      // Update the status to 'waiting' and remove hired timestamp
-      await workerRef.update({
-        'status': 'waiting',
-        'hiredAt': FieldValue.delete(),
-      });
+    final random = Random();
+    String selectedNumber = numbers[random.nextInt(numbers.length)];
 
-      // Optional: Remove from any hired workers collection if you have one
-      await FirebaseFirestore.instance
-          .collection('hired_workers')
-          .doc(workerId)
-          .delete();
-    } catch (e) {
-      print('Failed to cancel hire: $e');
-      rethrow;
+    String message = "Hello, mujhe worker ke baare me info chahiye";
+
+    final url = Uri.parse(
+        "https://wa.me/$selectedNumber?text=${Uri.encodeComponent(message)}");
+
+    if (await canLaunchUrl(url)) {
+      await launchUrl(url, mode: LaunchMode.externalApplication);
+    } else {
+      throw "WhatsApp open nahi ho raha";
     }
   }
 
@@ -43,41 +44,6 @@ class WorkerProfileScreen extends StatelessWidget {
       appBar: AppBar(
         title: const Text('Worker Profile'),
         backgroundColor: Colors.deepPurple,
-        actions: [
-          FutureBuilder<Map<String, dynamic>>(
-            future: _fetchWorkerDetails(),
-            builder: (context, snapshot) {
-              if (snapshot.connectionState == ConnectionState.waiting) {
-                return const SizedBox();
-              }
-              if (snapshot.hasData && snapshot.data!['status'] == 'hired') {
-                return IconButton(
-                  icon: const Icon(Icons.close, color: Colors.white),
-                  onPressed: () async {
-                    try {
-                      await _cancelHire(workerId);
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        const SnackBar(content: Text('Hire cancelled successfully')),
-                      );
-                      // Refresh the page
-                      Navigator.pushReplacement(
-                        context,
-                        MaterialPageRoute(
-                          builder: (context) => WorkerProfileScreen(workerId: workerId),
-                        ),
-                      );
-                    } catch (e) {
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        SnackBar(content: Text('Failed to cancel hire: $e')),
-                      );
-                    }
-                  },
-                );
-              }
-              return const SizedBox();
-            },
-          ),
-        ],
       ),
       body: Container(
         decoration: const BoxDecoration(
@@ -93,24 +59,16 @@ class WorkerProfileScreen extends StatelessWidget {
             if (snapshot.connectionState == ConnectionState.waiting) {
               return const Center(child: CircularProgressIndicator());
             }
-            if (snapshot.hasError || !snapshot.hasData || snapshot.data!.containsKey('error')) {
-              return Center(
+            if (snapshot.hasError || !snapshot.hasData) {
+              return const Center(
                 child: Text(
-                  'Error loading worker profile: ${snapshot.data?['error'] ?? snapshot.error}',
-                  style: const TextStyle(color: Colors.red),
+                  'Error loading worker profile',
+                  style: TextStyle(color: Colors.white70),
                 ),
               );
             }
 
             final worker = snapshot.data!;
-            final name = worker['name']?.toString() ?? 'Unknown';
-            final rating = (worker['rating'] as num?)?.toStringAsFixed(1) ?? 'N/A';
-            final skills = (worker['skills'] as List<dynamic>?)?.join(", ") ?? 'No skills listed';
-            final age = worker['age']?.toString() ?? 'N/A';
-            final about = worker['about']?.toString() ?? 'No description provided';
-            final photoUrl = worker['photoUrl']?.toString();
-            final transactions = List<Map<String, dynamic>>.from(worker['transactions'] ?? []);
-            final status = worker['status']?.toString() ?? 'N/A';
 
             return Padding(
               padding: const EdgeInsets.all(16.0),
@@ -121,25 +79,20 @@ class WorkerProfileScreen extends StatelessWidget {
                     Center(
                       child: CircleAvatar(
                         radius: 60,
-                        child: ClipOval(
-                          child: photoUrl != null
-                              ? Image.network(
-                            photoUrl,
-                            fit: BoxFit.cover,
-                            width: 120,
-                            height: 120,
-                            errorBuilder: (context, error, stackTrace) {
-                              return const Icon(Icons.person, size: 60, color: Colors.white70);
-                            },
-                          )
-                              : const Icon(Icons.person, size: 60, color: Colors.white70),
-                        ),
+                        backgroundImage: worker['photoUrl'] != null
+                            ? NetworkImage(worker['photoUrl'].toString())
+                            : null,
+                        child: worker['photoUrl'] == null
+                            ? const Icon(Icons.person,
+                            size: 60, color: Colors.white70)
+                            : null,
                       ),
                     ),
                     const SizedBox(height: 20),
+
                     Center(
                       child: Text(
-                        name,
+                        worker['name'] ?? 'Unknown',
                         style: const TextStyle(
                           fontSize: 28,
                           fontWeight: FontWeight.bold,
@@ -147,154 +100,59 @@ class WorkerProfileScreen extends StatelessWidget {
                         ),
                       ),
                     ),
+
                     const SizedBox(height: 8),
+
                     Center(
                       child: Row(
                         mainAxisAlignment: MainAxisAlignment.center,
                         children: [
-                          const Icon(Icons.star, color: Colors.amber, size: 24),
+                          const Icon(Icons.star,
+                              color: Colors.amber, size: 24),
                           const SizedBox(width: 4),
                           Text(
-                            rating,
+                            worker['rating'] != null
+                                ? worker['rating'].toString()
+                                : 'N/A',
                             style: const TextStyle(
                               fontSize: 20,
                               color: Colors.white70,
                             ),
                           ),
-                          const SizedBox(width: 16),
-                          Container(
-                            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                            decoration: BoxDecoration(
-                              color: status == 'hired' ? Colors.green : Colors.orange,
-                              borderRadius: BorderRadius.circular(12),
-                            ),
-                            child: Text(
-                              status.toUpperCase(),
-                              style: const TextStyle(
-                                fontSize: 14,
-                                color: Colors.white,
-                                fontWeight: FontWeight.bold,
-                              ),
-                            ),
-                          ),
                         ],
                       ),
                     ),
-                    const SizedBox(height: 24),
-                    _buildProfileItem(Icons.construction, 'Skills:', skills),
-                    _buildProfileItem(Icons.calendar_today, 'Age:', age),
-                    _buildProfileItem(Icons.description, 'About:', about),
-                    const SizedBox(height: 24),
-                    const Text(
-                      'Transaction History:',
-                      style: TextStyle(
-                        fontSize: 18,
-                        fontWeight: FontWeight.w600,
-                        color: Colors.white,
-                      ),
-                    ),
-                    const SizedBox(height: 10),
-                    if (transactions.isEmpty)
-                      const Padding(
-                        padding: EdgeInsets.only(top: 8.0),
-                        child: Text(
-                          'No transactions yet',
-                          style: TextStyle(color: Colors.white70),
-                        ),
-                      )
-                    else
-                      ListView.builder(
-                        shrinkWrap: true,
-                        physics: const NeverScrollableScrollPhysics(),
-                        itemCount: transactions.length,
-                        itemBuilder: (context, index) {
-                          final transaction = transactions[index];
-                          final amount = transaction['amount']?.toString() ?? '0.0';
-                          final type = transaction['type']?.toString() ?? 'Unknown';
-                          final status = transaction['status']?.toString() ?? 'Unknown';
-                          final createdAt = (transaction['createdAt'] as Timestamp?)?.toDate() ?? DateTime.now();
-                          final creditedAt = (transaction['creditedAt'] as Timestamp?)?.toDate();
 
-                          return Card(
-                            color: const Color.fromRGBO(255, 255, 255, 0.05),
-                            margin: const EdgeInsets.symmetric(vertical: 8),
-                            child: Padding(
-                              padding: const EdgeInsets.all(12.0),
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  Text(
-                                    'Job: ${transaction['jobTitle'] ?? 'Untitled Job'}',
-                                    style: const TextStyle(
-                                      fontSize: 16,
-                                      color: Colors.white,
-                                    ),
-                                  ),
-                                  const SizedBox(height: 4),
-                                  Text(
-                                    'Amount: ₹$amount',
-                                    style: const TextStyle(
-                                      fontSize: 16,
-                                      color: Colors.white70,
-                                    ),
-                                  ),
-                                  const SizedBox(height: 4),
-                                  Text(
-                                    'Type: $type',
-                                    style: const TextStyle(
-                                      fontSize: 16,
-                                      color: Colors.white70,
-                                    ),
-                                  ),
-                                  const SizedBox(height: 4),
-                                  Text(
-                                    'Status: $status',
-                                    style: TextStyle(
-                                      fontSize: 16,
-                                      color: status == 'pending' ? Colors.orange : Colors.green,
-                                    ),
-                                  ),
-                                  const SizedBox(height: 4),
-                                  Text(
-                                    'Created: ${DateFormat('yyyy-MM-dd HH:mm').format(createdAt)}',
-                                    style: const TextStyle(
-                                      fontSize: 14,
-                                      color: Colors.white70,
-                                    ),
-                                  ),
-                                  if (creditedAt != null)
-                                    Text(
-                                      'Credited: ${DateFormat('yyyy-MM-dd HH:mm').format(creditedAt)}',
-                                      style: const TextStyle(
-                                        fontSize: 14,
-                                        color: Colors.white70,
-                                      ),
-                                    ),
-                                ],
-                              ),
-                            ),
-                          );
-                        },
-                      ),
                     const SizedBox(height: 24),
+
+                    _buildProfileItem(Icons.work, 'Experience:',
+                        worker['experience'] ?? 'N/A'),
+                    _buildProfileItem(Icons.location_city, 'Location:',
+                        worker['location'] ?? 'N/A'),
+                    _buildProfileItem(
+                        Icons.construction,
+                        'Skills:',
+                        worker['skills'] != null
+                            ? (worker['skills'] as List).join(", ")
+                            : 'No skills'),
+                    _buildProfileItem(Icons.description, 'About:',
+                        worker['about'] ?? 'No description'),
+
+                    const SizedBox(height: 30),
+
+                    // 🔥 WHATSAPP BUTTON
                     SizedBox(
                       width: double.infinity,
                       child: ElevatedButton(
-                        onPressed: () {
-                          ScaffoldMessenger.of(context).showSnackBar(
-                            const SnackBar(content: Text('Chat feature coming soon!')),
-                          );
-                        },
+                        onPressed: _openWhatsApp,
                         style: ElevatedButton.styleFrom(
-                          backgroundColor: Colors.blue,
+                          backgroundColor: Colors.green,
                           padding: const EdgeInsets.symmetric(vertical: 16),
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(8),
-                          ),
                         ),
                         child: const Text(
-                          'Message Worker',
-                          style: TextStyle(color: Colors.white, fontSize: 16),
+                          'Message on WhatsApp',
+                          style: TextStyle(
+                              color: Colors.white, fontSize: 16),
                         ),
                       ),
                     ),
@@ -312,30 +170,13 @@ class WorkerProfileScreen extends StatelessWidget {
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 8.0),
       child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Icon(icon, color: Colors.white70, size: 24),
-          const SizedBox(width: 12),
+          Icon(icon, color: Colors.white70),
+          const SizedBox(width: 10),
           Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  label,
-                  style: const TextStyle(
-                    fontSize: 16,
-                    color: Colors.white70,
-                  ),
-                ),
-                const SizedBox(height: 4),
-                Text(
-                  value,
-                  style: const TextStyle(
-                    fontSize: 18,
-                    color: Colors.white,
-                  ),
-                ),
-              ],
+            child: Text(
+              "$label $value",
+              style: const TextStyle(color: Colors.white),
             ),
           ),
         ],
